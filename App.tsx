@@ -29,12 +29,13 @@ import VideoPlayer from './VideoPlayer.jsx';
 const chartModes = Object.keys(modes.Chart.subModes);
 
 export default function App() {
-  const [vidUrl, setVidUrl] = useState(null);
+  const [vidUrl, setVidUrl] = useState<string | null>(null);
   const [file, setFile] = useState(null);
-  const [timecodeList, setTimecodeList] = useState(null);
-  const [requestedTimecode, setRequestedTimecode] = useState(null);
+  const [timecodeList, setTimecodeList] = useState<any[] | null>(null);
+  const [requestedTimecode, setRequestedTimecode] = useState<number | null>(
+    null,
+  );
   const [selectedMode, setSelectedMode] = useState(Object.keys(modes)[0]);
-  // FIX: Explicitly type activeMode state.
   const [activeMode, setActiveMode] = useState<string | undefined>();
   const [isLoading, setIsLoading] = useState(false);
   const [showSidebar, setShowSidebar] = useState(true);
@@ -44,20 +45,20 @@ export default function App() {
   const [chartMode, setChartMode] = useState(chartModes[0]);
   const [chartPrompt, setChartPrompt] = useState('');
   const [chartLabel, setChartLabel] = useState('');
-  const [currentView, setCurrentView] = useState(null);
+  const [currentView, setCurrentView] = useState<string | null>(null);
   const [theme] = useState(
     window.matchMedia('(prefers-color-scheme: dark)').matches
       ? 'dark'
       : 'light',
   );
-  // FIX: Correctly type scrollRef to allow calling .scrollTo() and fix ref assignment.
   const scrollRef = useRef<HTMLElement>(null);
   const isCustomMode = selectedMode === 'Custom';
   const isChartMode = selectedMode === 'Chart';
   const isCustomChartMode = isChartMode && chartMode === 'Custom';
   const hasSubMode = isCustomMode || isChartMode;
 
-  const onModeSelect = async (mode) => {
+  const onModeSelect = async (mode: string) => {
+    if (!file) return;
     setActiveMode(mode);
     setIsLoading(true);
     setTimecodeList(null);
@@ -86,9 +87,10 @@ export default function App() {
         name === 'set_timecodes' ||
         name === 'set_timecodes_with_objects'
       ) {
-        data = args.timecodes.map((t) => ({
+        data = args.timecodes.map((t: {text: string}) => ({
           ...t,
-          text: t.text.replaceAll("\\'", "'"),
+          // FIX: Replace `replaceAll` with `replace` and a global regex for wider browser compatibility.
+          text: t.text.replace(/\\'/g, "'"),
         }));
       } else if (name === 'set_timecodes_with_numeric_values') {
         data = args.timecodes;
@@ -101,34 +103,40 @@ export default function App() {
     }
 
     setIsLoading(false);
-    // FIX: Check if scrollRef.current exists before using it.
     scrollRef.current?.scrollTo({top: 0});
   };
 
-  const uploadVideo = async (e) => {
-    e.preventDefault();
+  const handleFile = async (fileToUpload: File) => {
+    if (!fileToUpload || !fileToUpload.type.startsWith('video/')) {
+      setVideoError(true);
+      return;
+    }
     setIsLoadingVideo(true);
-    setVidUrl(URL.createObjectURL(e.dataTransfer.files[0]));
+    setVidUrl(URL.createObjectURL(fileToUpload));
     setTimecodeList(null);
     setCurrentView(null);
     setVideoError(false);
-
-    const file = e.dataTransfer.files[0];
+    setActiveMode(undefined);
 
     try {
-      const res = await uploadFile(file);
+      const res = await uploadFile(fileToUpload);
       setFile(res);
-      setIsLoadingVideo(false);
     } catch (e) {
       setVideoError(true);
+    } finally {
       setIsLoadingVideo(false);
     }
+  };
+
+  const onDrop = async (e: React.DragEvent<HTMLElement>) => {
+    e.preventDefault();
+    handleFile(e.dataTransfer.files[0]);
   };
 
   return (
     <main
       className={theme}
-      onDrop={uploadVideo}
+      onDrop={onDrop}
       onDragOver={(e) => e.preventDefault()}
       onDragEnter={() => {}}
       onDragLeave={() => {}}>
@@ -152,7 +160,6 @@ export default function App() {
                               onModeSelect(selectedMode);
                             }
                           }}
-                          // FIX: Use number for rows attribute.
                           rows={5}
                         />
                       </>
@@ -184,7 +191,6 @@ export default function App() {
                             }
                           }}
                           onFocus={() => setChartMode('Custom')}
-                          // FIX: Use number for rows attribute.
                           rows={2}
                         />
                       </>
@@ -239,25 +245,25 @@ export default function App() {
                 <div className="viewSelector">
                   <h2>View as:</h2>
                   <div className="modeList">
-                    {/* FIX: Add a check for activeMode before using it as an index. */}
-                    {activeMode && (modes[activeMode].views || []).map((view) => (
-                      <button
-                        key={view}
-                        className={c('button', {
-                          active: view === currentView,
-                        })}
-                        onClick={() => setCurrentView(view)}>
-                        <span className="emoji">
-                          {{
-                            timeline: '📝',
-                            list: '📄',
-                            table: '🤓',
-                            chart: '📈',
-                          }[view] || '👁️'}
-                        </span>
-                        {view.charAt(0).toUpperCase() + view.slice(1)}
-                      </button>
-                    ))}
+                    {activeMode &&
+                      (modes[activeMode].views || []).map((view: string) => (
+                        <button
+                          key={view}
+                          className={c('button', {
+                            active: view === currentView,
+                          })}
+                          onClick={() => setCurrentView(view)}>
+                          <span className="emoji">
+                            {{
+                              timeline: '📝',
+                              list: '📄',
+                              table: '🤓',
+                              chart: '📈',
+                            }[view] || '👁️'}
+                          </span>
+                          {view.charAt(0).toUpperCase() + view.slice(1)}
+                        </button>
+                      ))}
                   </div>
                 </div>
               )}
@@ -279,6 +285,7 @@ export default function App() {
           jumpToTimecode={setRequestedTimecode}
           isLoadingVideo={isLoadingVideo}
           videoError={videoError}
+          onFileUpload={handleFile}
         />
       </section>
 
@@ -339,16 +346,14 @@ export default function App() {
               )}
               {currentView === 'timeline' &&
                 timecodeList.map(({time, text}, i) => (
-                  <>
-                    <span
-                      key={i}
-                      className="sentence"
-                      role="button"
-                      onClick={() => setRequestedTimecode(timeToSecs(time))}>
-                      <time>{time}</time>
-                      <span>{text}</span>
-                    </span>{' '}
-                  </>
+                  <span
+                    key={i}
+                    className="sentence"
+                    role="button"
+                    onClick={() => setRequestedTimecode(timeToSecs(time))}>
+                    <time>{time}</time>
+                    <span>{text} </span>
+                  </span>
                 ))}
             </>
           ) : null}

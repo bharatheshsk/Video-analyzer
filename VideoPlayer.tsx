@@ -13,15 +13,15 @@
 
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY, either express or implied.
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
 import c from 'classnames';
-import {useCallback, useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {timeToSecs} from './utils';
 
-const formatTime = (t) =>
+const formatTime = (t: number) =>
   `${Math.floor(t / 60)}:${Math.floor(t % 60)
     .toString()
     .padStart(2, '0')}`;
@@ -33,21 +33,25 @@ export default function VideoPlayer({
   isLoadingVideo,
   videoError,
   jumpToTimecode,
+  onFileUpload,
 }) {
-  const [video, setVideo] = useState(null);
+  const [video, setVideo] = useState<HTMLVideoElement | null>(null);
   const [duration, setDuration] = useState(0);
   const [scrubberTime, setScrubberTime] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [currentCaption, setCurrentCaption] = useState(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const currentSecs = duration * scrubberTime || 0;
   const currentPercent = scrubberTime * 100;
   const timecodeListReversed = useMemo(
-    () => timecodeList?.toReversed(),
+    // FIX: Replace `toReversed` with `slice().reverse()` for wider browser compatibility.
+    () => timecodeList?.slice().reverse(),
     [timecodeList],
   );
 
   const togglePlay = useCallback(() => {
+    if (!video) return;
     if (isPlaying) {
       video.pause();
     } else {
@@ -55,9 +59,10 @@ export default function VideoPlayer({
     }
   }, [isPlaying, video]);
 
-  const updateDuration = () => setDuration(video.duration);
+  const updateDuration = () => setDuration(video!.duration);
 
   const updateTime = () => {
+    if (!video) return;
     if (!isScrubbing) {
       setScrubberTime(video.currentTime / video.duration);
     }
@@ -65,7 +70,7 @@ export default function VideoPlayer({
     if (timecodeList) {
       setCurrentCaption(
         timecodeListReversed.find(
-          (t) => timeToSecs(t.time) <= video.currentTime,
+          (t: {time: string}) => timeToSecs(t.time) <= video.currentTime,
         )?.text,
       );
     }
@@ -86,8 +91,9 @@ export default function VideoPlayer({
   }, [video, requestedTimecode]);
 
   useEffect(() => {
-    const onKeyPress = (e) => {
+    const onKeyPress = (e: KeyboardEvent) => {
       if (
+        e.target instanceof HTMLElement &&
         e.target.tagName !== 'INPUT' &&
         e.target.tagName !== 'TEXTAREA' &&
         e.key === ' '
@@ -102,6 +108,16 @@ export default function VideoPlayer({
       removeEventListener('keypress', onKeyPress);
     };
   }, [togglePlay]);
+
+  const triggerFileInput = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files?.[0]) {
+      onFileUpload(e.target.files[0]);
+    }
+  };
 
   return (
     <div className="videoPlayer">
@@ -128,7 +144,6 @@ export default function VideoPlayer({
           <div className="videoControls">
             <div className="videoScrubber">
               <input
-                // FIX: Cast style object to allow CSS custom properties.
                 style={{'--pct': `${currentPercent}%`} as React.CSSProperties}
                 type="range"
                 min="0"
@@ -136,6 +151,7 @@ export default function VideoPlayer({
                 value={scrubberTime || 0}
                 step="0.000001"
                 onChange={(e) => {
+                  if (!video) return;
                   setScrubberTime(e.target.valueAsNumber);
                   video.currentTime = e.target.valueAsNumber * duration;
                 }}
@@ -179,13 +195,28 @@ export default function VideoPlayer({
         </>
       ) : (
         <div className="emptyVideo">
-          <p>
-            {isLoadingVideo
-              ? 'Processing video...'
-              : videoError
-                ? 'Error processing video.'
-                : 'Drag and drop a video file here to get started.'}
-          </p>
+          {isLoadingVideo ? (
+            <p>Processing video...</p>
+          ) : (
+            <div className="uploadPrompt">
+              <p>
+                {videoError
+                  ? 'Error processing video. Please try another file.'
+                  : 'Drag and drop a video file here to get started.'}
+              </p>
+              <button className="button uploadButton" onClick={triggerFileInput}>
+                <span className="icon">upload</span>
+                Upload Video
+              </button>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileSelect}
+                style={{display: 'none'}}
+                accept="video/*"
+              />
+            </div>
+          )}
         </div>
       )}
     </div>
